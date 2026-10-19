@@ -115,7 +115,7 @@ jobs:
           echo "⚠️ APK will be signed with debug keystore (unsigned release)"
         fi
         
-        - name: Prepare release files
+    - name: Prepare release files
       run: |
         mkdir -p release
         APK=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
@@ -126,7 +126,11 @@ jobs:
       run: |
         cd release
         sha256sum *.apk > checksums.txt
-        
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: starship-apk
+        path: release/*.apk
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
