@@ -44,6 +44,11 @@ void SetupGuiElements() {
 
     mGameMenuBar = std::make_shared<GameMenuBar>("gOpenMenuBar", CVarGetInteger("gOpenMenuBar", 0));
     gui->SetMenuBar(mGameMenuBar);
+    #ifdef __ANDROID__
+    if (CVarGetInteger("gControlNav", -1) == -1) {
+        CVarSetInteger("gControlNav", 1);
+    }
+#endif
 
     if (gui->GetMenuBar() && !gui->GetMenuBar()->IsVisible()) {
 #if defined(__SWITCH__) || defined(__WIIU__)
@@ -227,9 +232,59 @@ void DrawSpeakerPositionEditor() {
     ImGui::SetCursorScreenPos(ImVec2(canvasPos.x, canvasPos.y + canvasSize.y + 10));
 }
 
+static bool sGamepadLayout = false; // true solo mientras se dibuja el layout nuevo
+static int sMenuDepth = 0;          // 0 = nivel de categoria, >0 = secciones anidadas
+static int sCategory = 0;           // categoria seleccionada
+static const char* kCategories[] = { "Starship", "Settings", "Graphics", "Enhancements", "Cheats", "Developer" };
+static constexpr int kCategoryCount = IM_ARRAYSIZE(kCategories);
+static constexpr float kFontScale = 1.6f;   // ajustar en el Pocket 6
+static constexpr float kRowHeight = 56.0f;  // alto de las filas de categoria
+
+static bool UseGamepadLayout() {
+#ifdef __ANDROID__
+    return true;
+#else
+    // En PC se activa con el CVar para poder probar sin el telefono
+    return CVarGetInteger("gGamepadLayout", 0) != 0;
+#endif
+}
+
+// Sustituye a UIWidgets::BeginMenu: barra clasica en PC, pagina/seccion en layout nuevo
+static bool GBeginMenu(const char* name) {
+    if (!sGamepadLayout) {
+        return UIWidgets::BeginMenu(name);
+    }
+    if (sMenuDepth == 0) {
+        // Nivel categoria: solo se dibuja la categoria seleccionada
+        if (strcmp(name, kCategories[sCategory]) != 0) {
+            return false;
+        }
+        sMenuDepth++;
+        return true;
+    }
+    // Submenus (Audio, Gameplay, Fixes, ...): seccion plegable navegable con A
+    if (ImGui::CollapsingHeader(name)) {
+        ImGui::Indent();
+        sMenuDepth++;
+        return true;
+    }
+    return false;
+}
+
+// Sustituye a ImGui::EndMenu
+static void GEndMenu() {
+    if (!sGamepadLayout) {
+        ImGui::EndMenu();
+        return;
+    }
+    sMenuDepth--;
+    if (sMenuDepth > 0) {
+        ImGui::Unindent();
+    }
+}
 void DrawSettingsMenu(){
-    if(UIWidgets::BeginMenu("Settings")){
-        if (UIWidgets::BeginMenu("Audio")) {
+    if(GBeginMenu("Settings")){
+        if (GBeginMenu("Audio")) {
             UIWidgets::CVarSliderFloat("Master Volume", "gGameMasterVolume", 0.0f, 1.0f, 1.0f, {
                 .format = "%.0f%%",
                 .isPercentage = true,
@@ -302,12 +357,12 @@ void DrawSettingsMenu(){
                 DrawSpeakerPositionEditor();
             }
 
-            ImGui::EndMenu();
+            GEndMenu();
         }
         
         if (!GameEngine::HasVersion(SF64_VER_JP) || GameEngine::HasVersion(SF64_VER_EU)) {
             UIWidgets::Spacer(0);
-            if (UIWidgets::BeginMenu("Language")) {
+            if (GBeginMenu("Language")) {
                 ImGui::Dummy(ImVec2(150, 0.0f));
                 if (!GameEngine::HasVersion(SF64_VER_JP) && GameEngine::HasVersion(SF64_VER_EU)){
                     //UIWidgets::Spacer(0);
@@ -326,13 +381,13 @@ void DrawSettingsMenu(){
                         Ship::Context::GetInstance()->GetWindow()->Close();
                     }
                 }
-                ImGui::EndMenu();
+                GEndMenu();
             }
         }
         
         UIWidgets::Spacer(0);
 
-        if (UIWidgets::BeginMenu("Controller")) {
+        if (GBeginMenu("Controller")) {
             UIWidgets::WindowButton("Controller Mapping", "gInputEditorWindow", GameUI::mInputEditorWindow);
 
             UIWidgets::Spacer(0);
@@ -345,14 +400,14 @@ void DrawSettingsMenu(){
                 .tooltip = "Inverts the Y axis for controlling vehicles"
             });
 
-            ImGui::EndMenu();
+            GEndMenu();
         }
 
-        ImGui::EndMenu();
+        GEndMenu();
     }
 
     ImGui::SetCursorPosY(0.0f);
-    if (UIWidgets::BeginMenu("Graphics")) {
+    if (GBeginMenu("Graphics")) {
         UIWidgets::WindowButton("Resolution Editor", "gAdvancedResolutionEditorEnabled", GameUI::mAdvancedResolutionSettingsWindow);
 
         UIWidgets::Spacer(0);
@@ -518,7 +573,7 @@ void DrawSettingsMenu(){
 
         Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->DrawSettings();
 
-        ImGui::EndMenu();
+        GEndMenu();
     }
 }
 
@@ -548,7 +603,7 @@ void DrawMenuBarIcon() {
 }
 
 void DrawGameMenu() {
-    if (UIWidgets::BeginMenu("Starship")) {
+    if (GBeginMenu("Starship")) {
         if (UIWidgets::MenuItem("Reset", "F4")) {
             gNextGameState = GSTATE_BOOT;
         }
@@ -562,7 +617,7 @@ void DrawGameMenu() {
         if (UIWidgets::MenuItem("Quit")) {
             Ship::Context::GetInstance()->GetWindow()->Close();
         }
-        ImGui::EndMenu();
+        GEndMenu();
     }
 }
 
@@ -571,9 +626,9 @@ static const char* hudAspects[] = {
 };
 
 void DrawEnhancementsMenu() {
-    if (UIWidgets::BeginMenu("Enhancements")) {
+    if (GBeginMenu("Enhancements")) {
 
-        if (UIWidgets::BeginMenu("Gameplay")) {
+        if (GBeginMenu("Gameplay")) {
             UIWidgets::CVarCheckbox("No Level of Detail (LOD)", "gDisableLOD", {
                 .tooltip = "Disable Level of Detail (LOD) to avoid models using lower poly versions at a distance",
                 .defaultValue = true
@@ -586,10 +641,10 @@ void DrawEnhancementsMenu() {
             UIWidgets::CVarSliderInt("Cockpit Glass Opacity: %d", "gCockpitOpacity", 0, 255, 120);
             
 
-            ImGui::EndMenu();
+            GEndMenu();
         }
         
-        if (UIWidgets::BeginMenu("Fixes")) {
+        if (GBeginMenu("Fixes")) {
             UIWidgets::CVarCheckbox("Macbeth: Level ending cutscene camera fix", "gMaCameraFix", {
                 .tooltip = "Fixes a camera bug found in the code of the game"
             });
@@ -598,10 +653,10 @@ void DrawEnhancementsMenu() {
                 .tooltip = "Fixes a bug found in Sector Z, where only 10 of 12 available actors are spawned, this causes two 'Space Junk Boxes' to be missing from the level."
             });
 
-            ImGui::EndMenu();
+            GEndMenu();
         }
 
-        if (UIWidgets::BeginMenu("Restoration")) {
+        if (GBeginMenu("Restoration")) {
             UIWidgets::CVarCheckbox("Sector Z: Missile cutscene bug", "gSzMissileBug", {
                 .tooltip = "Restores the missile cutscene bug present in JP 1.0"
             });
@@ -614,10 +669,10 @@ void DrawEnhancementsMenu() {
                 .tooltip = "Restores the beta boost gauge that was seen in some beta footage"
             });
 
-            ImGui::EndMenu();
+            GEndMenu();
         }
 
-        if (UIWidgets::BeginMenu("HUD")) {
+        if (GBeginMenu("HUD")) {
             if (UIWidgets::CVarCombobox("HUD Aspect Ratio", "gHUDAspectRatio.Selection", hudAspects, 
             {
                 .tooltip = "Which Aspect Ratio to use when drawing the HUD (Radar, gauges and radio messages)",
@@ -668,10 +723,10 @@ void DrawEnhancementsMenu() {
             }
 
             ImGui::Dummy(ImVec2(ImGui::CalcTextSize("Nintendo 3DS (5:3)").x + 35, 0.0f));
-            ImGui::EndMenu();
+            GEndMenu();
         }
 
-        if (UIWidgets::BeginMenu("Accessibility")) { 
+        if (GBeginMenu("Accessibility")) { 
             UIWidgets::CVarCheckbox("Disable Gorgon (Area 6 boss) screen flashes", "gDisableGorgonFlash", {
                 .tooltip = "Gorgon flashes the screen repeatedly when firing its beam or when teleporting, which causes eye pain for some players and may be harmful to those with photosensitivity.",
                 .defaultValue = false
@@ -680,15 +735,15 @@ void DrawEnhancementsMenu() {
                 .tooltip = "Increases visibility of ships in the radar.",
                 .defaultValue = false
             });
-            ImGui::EndMenu();
+            GEndMenu();
         }
 
-        ImGui::EndMenu();
+        GEndMenu();
     }
 }
 
 void DrawCheatsMenu() {
-    if (UIWidgets::BeginMenu("Cheats")) {
+    if (GBeginMenu("Cheats")) {
         UIWidgets::CVarCheckbox("Infinite Lives", "gInfiniteLives");
         UIWidgets::CVarCheckbox("Invincible", "gInvincible");
         UIWidgets::CVarCheckbox("Unbreakable Wings", "gUnbreakableWings");
@@ -727,7 +782,7 @@ void DrawCheatsMenu() {
                 { .tooltip = "Increase or decrease the current mission score number" });
         }
 
-        ImGui::EndMenu();
+        GEndMenu();
     }
 }
 
@@ -745,7 +800,7 @@ static const char* logLevels[] = {
 };
 
 void DrawDebugMenu() {
-    if (UIWidgets::BeginMenu("Developer")) {
+    if (GBeginMenu("Developer")) {
         if (UIWidgets::CVarCombobox("Log Level", "gDeveloperTools.LogLevel", logLevels, {
             .tooltip = "The log level determines which messages are printed to the "
                         "console. This does not affect the log file output",
@@ -872,34 +927,104 @@ void DrawDebugMenu() {
             .tooltip = "Enables the console window, allowing you to input commands, type help for some examples"
         });
 
-        ImGui::EndMenu();
+        GEndMenu();
     }
 }
 
-void GameMenuBar::DrawElement() {
-    if(ImGui::BeginMenuBar()){
-        DrawMenuBarIcon();
+static bool sPopupOpenLastFrame = false;
 
+static void DrawGamepadLayout() {
+    ImGuiIO& io = ImGui::GetIO();
+    static int lastCategory = -1;
+
+    sGamepadLayout = true;
+    sMenuDepth = 0;
+
+    // L1 / R1 cambian de categoria
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        sCategory = (sCategory + kCategoryCount - 1) % kCategoryCount;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        sCategory = (sCategory + 1) % kCategoryCount;
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 14.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12.0f, 14.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 22.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
+
+    // Ventana a pantalla completa (tapa tambien la franja vacia de la barra)
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
+
+    if (ImGui::Begin("##StarshipGamepadMenu", nullptr, flags)) {
+        ImGui::SetWindowFontScale(kFontScale);
+
+        const float footerH = ImGui::GetFrameHeightWithSpacing() + 8.0f;
+        const float sideW = io.DisplaySize.x * 0.26f;
+
+        // Panel izquierdo: categorias
+        ImGui::BeginChild("##cats", ImVec2(sideW, -footerH), true);
+        ImGui::SetWindowFontScale(kFontScale);
+        for (int i = 0; i < kCategoryCount; i++) {
+            if (ImGui::Selectable(kCategories[i], sCategory == i, 0, ImVec2(0.0f, kRowHeight))) {
+                sCategory = i;
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        // Panel derecho: opciones de la categoria activa
+        ImGui::BeginChild("##page", ImVec2(0.0f, -footerH), true);
+        ImGui::SetWindowFontScale(kFontScale);
+        if (lastCategory != sCategory) {
+            ImGui::SetScrollY(0.0f);
+            lastCategory = sCategory;
+        }
         DrawGameMenu();
-
-        ImGui::SetCursorPosY(0.0f);
-
-        DrawSettingsMenu();
-
-        ImGui::SetCursorPosY(0.0f);
-
+        DrawSettingsMenu(); // dibuja "Settings" y "Graphics"
         DrawEnhancementsMenu();
-
-        ImGui::SetCursorPosY(0.0f);
-
         DrawCheatsMenu();
-
-        ImGui::SetCursorPosY(0.0f);
-
-        ImGui::SetCursorPosY(0.0f);
-
         DrawDebugMenu();
+        ImGui::EndChild();
 
+        ImGui::TextDisabled("D-Pad: Move    A: Select    L1/R1: Category    Start: Close");
+    }
+    ImGui::End();
+
+    ImGui::PopStyleVar(4);
+    sGamepadLayout = false;
+}
+
+void GameMenuBar::DrawElement() {
+    if (UseGamepadLayout()) {
+        DrawGamepadLayout();
+
+        // Start cierra el menu (B queda libre para que ImGui cierre combos/popups)
+        bool popupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false) && !popupOpen && !sPopupOpenLastFrame) {
+            this->Hide(); // si no compila: ToggleVisibility() o CVarSetInteger("gOpenMenuBar", 0)
+        }
+        sPopupOpenLastFrame = popupOpen;
+        return;
+    }
+
+    // ---- Barra clasica original (PC) ----
+    if (ImGui::BeginMenuBar()) {
+        DrawMenuBarIcon();
+        DrawGameMenu();
+        ImGui::SetCursorPosY(0.0f);
+        DrawSettingsMenu();
+        ImGui::SetCursorPosY(0.0f);
+        DrawEnhancementsMenu();
+        ImGui::SetCursorPosY(0.0f);
+        DrawCheatsMenu();
+        ImGui::SetCursorPosY(0.0f);
+        ImGui::SetCursorPosY(0.0f);
+        DrawDebugMenu();
         ImGui::EndMenuBar();
     }
 }
