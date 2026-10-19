@@ -13,6 +13,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   generate-port-o2r:
     runs-on: ubuntu-22.04
@@ -102,7 +105,7 @@ jobs:
       run: |
         cd android/
         ./gradlew clean
-        ./gradlew assembleRelease -P elfBuildType=RelWithDebInfo --no-daemon
+        ./gradlew assembleDebug -P elfBuildType=RelWithDebInfo --no-daemon
         
     - name: Verify APK signing
       run: |
@@ -112,10 +115,12 @@ jobs:
           echo "⚠️ APK will be signed with debug keystore (unsigned release)"
         fi
         
-    - name: Prepare release files
+        - name: Prepare release files
       run: |
         mkdir -p release
-        cp android/app/build/outputs/apk/release/app-release.apk release/starship-v${{ github.event.inputs.version }}.apk
+        APK=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
+        echo "APK encontrado: $APK"
+        cp "$APK" release/starship-v${{ github.event.inputs.version }}.apk
         
     - name: Generate checksums
       run: |
